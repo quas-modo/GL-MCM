@@ -1,6 +1,6 @@
 EXP_NAME='exp1'
 ID='ImageNet'
-DATA_ROOT='./datasets'
+DATA_ROOT='/home/nfs03/zengtc'
 
 
 CKPT=ViT-B/16
