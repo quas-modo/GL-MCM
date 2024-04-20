@@ -111,24 +111,9 @@ def cls_auroc_ours(closed_logits, open_logits):
     open_logits = to_np(F.softmax(open_logits, dim=1))
 
     closed_first_half = np.max(closed_logits[:, :pos_cate_num], axis=1)
-    # closed_second_half = np.max(closed_logits[ : , pos_cate_num:], axis=1)
-    # closed_pred = closed_first_half - closed_second_half
-
     open_first_half = np.max(open_logits[:, :pos_cate_num], axis=1)
-    # open_seconde_half = np.max(open_logits[:, pos_cate_num:], axis=1)
-    # open_pred = open_first_half - open_seconde_half
-
-    # pred = np.concatenate((closed_pred, open_pred), axis=None)
-
-    # diff_min = np.min(pred)
-    # pred = pred + abs(diff_min)
-
-    # labels = np.zeros(closed_num + open_num, dtype=np.int32)
-    # labels[:closed_num] += 1
-
-    # auroc = metrics.roc_auc_score(labels, pred)
-
-    auroc, _, fpr = get_measure(closed_first_half, open_first_half, 0.95);
+    
+    auroc, _, fpr = get_measure(closed_first_half, open_first_half, 0.95)
     return auroc * 100, fpr * 100
 
 def get_measure(_pos, _neg, recall_level=0.95):
@@ -279,26 +264,35 @@ def build_cache_model(log, cfg, clip_model, train_loader_cache):
 
     if cfg['load_cache'] == False:    
         cache_keys = []
+        local_cache_keys = []
         cache_values = []
-
+        
         with torch.no_grad():
             # Data augmentation for the cache model
             for augment_idx in range(cfg['augment_epoch']):
                 train_features = []
+                local_train_features = []
 
                 log.debug('Augment Epoch: {:} / {:}'.format(augment_idx, cfg['augment_epoch']))
                 for i, (images, target) in enumerate(tqdm(train_loader_cache)):
                     images = images.cuda()
-                    image_features, _ = clip_model.encode_image(images)
+                    image_features, local_image_features = clip_model.encode_image(images)
                     train_features.append(image_features)
+                    local_train_features.append(local_image_features)
                     if augment_idx == 0:
                         target = target.cuda()
                         cache_values.append(target)
                 cache_keys.append(torch.cat(train_features, dim=0).unsqueeze(0))
+                local_cache_keys.append(torch.cat(local_train_features, dim=0).unsqueeze(0))
+                
             
         cache_keys = torch.cat(cache_keys, dim=0).mean(dim=0)
         cache_keys /= cache_keys.norm(dim=-1, keepdim=True)
         cache_keys = cache_keys.permute(1, 0)
+
+        local_cache_keys = torch.cat(local_cache_keys, dim=0).mean(dim=0)
+        local_cache_keys /= local_cache_keys.norm(dim=-1, keepdim=True)
+        local_cache_keys = local_cache_keys.permute(1, 0)
 
         shots_num = cfg["shots"]
         _, support_num = cache_keys.shape
@@ -318,37 +312,43 @@ def build_cache_model(log, cfg, clip_model, train_loader_cache):
 
         torch.save(cache_keys, cfg['cache_dir'] + '/keys_' + str(cfg['shots']) + "shots.pt")
         torch.save(cache_values, cfg['cache_dir'] + '/values_' + str(cfg['shots']) + "shots.pt")
+        torch.save(local_cache_keys, cfg['cache_dir'] + '/local_keys_' + str(cfg['shots'] + "shots.pt"))
 
     else:
         cache_keys = torch.load(cfg['cache_dir'] + '/keys_' + str(cfg['shots']) + "shots.pt")
         cache_values = torch.load(cfg['cache_dir'] + '/values_' + str(cfg['shots']) + "shots.pt")
+        local_cache_keys = torch.load(cfg['cache_dir'] + '/local_keys_' + str(cfg['shots']) + "shots.pt")
 
-    return cache_keys, cache_values
+    return cache_keys, local_cache_keys, cache_values
 
 
 def pre_load_features(cfg, split, clip_model, loader):
 
     if cfg['load_pre_feat'] == False:
-        features, labels = [], []
+        features, local_features, labels = [], [], []
 
         with torch.no_grad():
             for i, (images, target) in enumerate(tqdm(loader)):
                 images, target = images.cuda(), target.cuda()
-                image_features, _ = clip_model.encode_image(images)
+                image_features, local_image_features = clip_model.encode_image(images)
                 image_features /= image_features.norm(dim=-1, keepdim=True)
+                local_image_features /= local_image_features.norm(dim=-1, keepdim=True)
                 features.append(image_features)
+                local_features.append(local_image_features)
                 labels.append(target)
 
-        features, labels = torch.cat(features), torch.cat(labels)
+        features, local_features, labels = torch.cat(features), torch.cat(local_features), torch.cat(labels)
 
         torch.save(features, cfg['cache_dir'] + "/" + split + "_f.pt")
+        torch.save(local_features, cfg['cache_dir'] + "/" + split + "_lf.pt")
         torch.save(labels, cfg['cache_dir'] + "/" + split + "_l.pt")
    
     else:
         features = torch.load(cfg['cache_dir'] + "/" + split + "_f.pt")
+        local_features = torch.load(cfg['cache_dir'] + "/" + split + "_lf.pt")
         labels = torch.load(cfg['cache_dir'] + "/" + split + "_l.pt")
     
-    return features, labels
+    return features, local_features, labels
 
 
 def search_hp(cfg, cache_keys, cache_values, features, labels, clip_weights, adapter=None):
