@@ -76,6 +76,7 @@ def cal_loss_auroc(logits):
 
     condition = pos_half < neg_half
     indices = np.where(condition)[0]
+    print(indices)
     p = torch.tensor(neg_half[indices])
     print(p.shape)
     if p.shape[0] == 0:
