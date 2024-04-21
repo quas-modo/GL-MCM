@@ -170,17 +170,10 @@ def APE_ood(log, cfg, cache_keys, cache_values, test_features, test_labels, clip
                 image_features, local_image_features = clip_model.encode_image(images)
                 image_features /= image_features.norm(dim=-1, keepdim=True)
 
-            new_image_features = image_features[:, top_indices]
-            affinity = adapter(new_image_features)
-            cache_logits = ((-1) * (beta - beta * affinity)).exp() @ new_cache_values
-            clip_logits = 100. * new_image_features @ zero_clip_weights
+            affinity = adapter(image_features)
+            cache_logits = ((-1) * (beta - beta * affinity)).exp() @ cache_values
+            clip_logits = 100. * image_features @ clip_weights
             tip_logits = clip_logits + cache_logits * alpha
-
-            # new_open_features = open_features[:, top_indices]
-            # open_logits = 100. * new_open_features @ zero_clip_weights
-            # open_affinity = adapter(new_open_features)
-            # open_cache_logits = ((-1) * (beta - beta * open_affinity)).exp() @ new_cache_values
-            # open_tip_logits = open_logits + open_cache_logits * alpha
 
             loss_acc = F.cross_entropy(tip_logits, target)
             loss_auroc = cal_loss_auroc(tip_logits)
