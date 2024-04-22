@@ -292,7 +292,7 @@ def build_cache_model(log, cfg, clip_model, train_loader_cache):
 
         local_cache_keys = torch.cat(local_cache_keys, dim=0).mean(dim=0)
         local_cache_keys /= local_cache_keys.norm(dim=-1, keepdim=True)
-        local_cache_keys = local_cache_keys.permute(1, 0)
+        local_cache_keys = local_cache_keys.permute(3, 0, 1, 2)
 
         shots_num = cfg["shots"]
         _, support_num = cache_keys.shape

@@ -95,8 +95,8 @@ def APE(log, cfg, cache_keys, local_cache_keys, cache_values,  test_features, te
     ood_cache_keys = cache_keys[ood_indices, :]
     cache_keys = torch.cat((top_cache_keys, ood_cache_keys), dim=1)
 
-    test_features = test_features[:, top_indices]
-    open_features = open_features[:, top_indices]
+    new_test_features = test_features[:, top_indices]
+    new_open_features = open_features[:, top_indices]
 
     zero_clip_weights = torch.cat((clip_weights, neg_clip_weights), dim=1)
     clip_logits = 100. * test_features @ zero_clip_weights
@@ -105,8 +105,8 @@ def APE(log, cfg, cache_keys, local_cache_keys, cache_values,  test_features, te
     zero_shot_acc = cls_acc(clip_logits, test_labels)
     print("\n**** Zero-shot CLIP's test accuracy: {:.2f}. ****\n".format(zero_shot_acc))
 
-    tip_logits = clip_logits + cal_cache_logits(cfg, test_features, cache_keys, cache_values)
-    open_tip_logits = open_logits + cal_cache_logits(cfg, open_features, cache_keys, cache_values)
+    tip_logits = clip_logits + cal_cache_logits(cfg, new_test_features, cache_keys, cache_values)
+    open_tip_logits = open_logits + cal_cache_logits(cfg, new_open_features, cache_keys, cache_values)
 
     auroc = cls_auroc_ours(tip_logits, open_tip_logits)
     log.debug("**** Our's test mcm auroc: {:.2f}. ****\n".format(auroc))
@@ -116,13 +116,13 @@ def APE(log, cfg, cache_keys, local_cache_keys, cache_values,  test_features, te
     ood_local_cache_keys = local_cache_keys[ood_indices, :]
     local_cache_keys = torch.cat((top_local_cache_keys, ood_local_cache_keys), dim=1)
 
-    test_local_features = test_local_features[:, top_indices]
-    open_local_features = open_local_features[:, top_indices]
+    new_test_local_features = test_local_features[:, top_indices]
+    new_open_local_features = open_local_features[:, top_indices]
     local_clip_logits = 100. * test_local_features @ zero_clip_weights
     local_open_logits = 100. * open_local_features @ zero_clip_weights
 
-    local_tip_logits = local_clip_logits + cal_cache_logits(cfg, test_local_features, local_cache_keys, cache_values)
-    local_open_tip_logits = local_open_logits + cal_cache_logits(cfg, open_local_features, local_cache_keys, cache_values)
+    local_tip_logits = local_clip_logits + cal_cache_logits(cfg, new_test_local_features, local_cache_keys, cache_values)
+    local_open_tip_logits = local_open_logits + cal_cache_logits(cfg, new_open_local_features, local_cache_keys, cache_values)
 
     tip_logits = tip_logits + local_tip_logits
     open_tip_logits = open_tip_logits + local_open_tip_logits
