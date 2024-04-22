@@ -106,3 +106,6 @@ If you find our work interesting or use our code/models, please cite:
 
 
 PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:32 CUDA_VISIBLE_DEVICES=0,1,2,3 python tip_ood_detection.py --in_dataset 'ImageNet' --name 'exp1' --CLIP_ckpt ViT-B/16 --score MCM --root-dir '/home/nfs03/zengtc'
+
+CUDA_VISIBLE_DEVICES="0,1" torchrun --nproc_per_node=2 tip_ood_detection.py --in_dataset 'ImageNet' --name 'exp1' --CLIP_ckpt ViT-B/16 --score MCM --root-dir '/home/nfs03/zengtc'
+CUDA_VISIBLE_DEVICES="1,2,3" python tip_ood_detection.py --in_dataset 'ImageNet' --name 'exp1' --CLIP_ckpt ViT-B/16 --score MCM --root-dir '/home/nfs03/zengtc'

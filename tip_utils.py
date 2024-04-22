@@ -312,7 +312,7 @@ def build_cache_model(log, cfg, clip_model, train_loader_cache):
 
         torch.save(cache_keys, cfg['cache_dir'] + '/keys_' + str(cfg['shots']) + "shots.pt")
         torch.save(cache_values, cfg['cache_dir'] + '/values_' + str(cfg['shots']) + "shots.pt")
-        torch.save(local_cache_keys, cfg['cache_dir'] + '/local_keys_' + str(cfg['shots'] + "shots.pt"))
+        torch.save(local_cache_keys, cfg['cache_dir'] + '/local_keys_' + str(cfg['shots']) + "shots.pt")
 
     else:
         cache_keys = torch.load(cfg['cache_dir'] + '/keys_' + str(cfg['shots']) + "shots.pt")

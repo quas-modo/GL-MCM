@@ -240,8 +240,7 @@ def main():
     setup_seed(args.seed)
     log = setup_log(args)
     assert torch.cuda.is_available()
-    torch.cuda.set_device(args.gpu)
-
+    
 
     if args.in_dataset in ['ImageNet']:
         out_datasets = ['iNaturalist', 'SUN', 'places365', 'Texture']
