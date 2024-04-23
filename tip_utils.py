@@ -116,6 +116,45 @@ def cls_auroc_ours(closed_logits, open_logits):
     auroc, _, fpr = get_measure(closed_first_half, open_first_half, 0.95)
     return auroc * 100, fpr * 100
 
+def cls_auroc_gl(closed_logits, open_logits, local_closed_logits, local_open_logits):
+    to_np = lambda x: x.data.cpu().numpy()
+
+    closed_num, cate_num = closed_logits.shape
+    pos_cate_num = cate_num // 2
+
+    closed_logits = to_np(F.softmax(closed_logits, dim=1))
+    open_logits = to_np(F.softmax(open_logits, dim=1))
+
+    closed_first_half = np.max(closed_logits[:, :pos_cate_num], axis=1)
+    open_first_half = np.max(open_logits[:, :pos_cate_num], axis=1)
+
+    local_closed_logits /= 100.0
+    local_open_logits /= 100.0
+    
+    print(local_closed_logits.shape)
+    print(local_open_logits.shape)
+
+    local_closed_logits = to_np(F.softmax(local_closed_logits), dim=1)
+    local_open_logits = to_np(F.softmax(local_open_logits), dim=-1)
+    
+    print(local_closed_logits.shape)
+    print(local_open_logits.shape)
+
+    local_closed_first_half = np.max(local_closed_logits[:, :pos_cate_num], axis=1)
+    local_open_first_half = np.max(local_open_logits[:, :pos_cate_num], axis=1)
+
+    print(local_closed_first_half.shape)
+    print(local_open_first_half.shape)
+
+    gl_closed = closed_first_half + local_closed_first_half
+    gl_open = open_first_half + local_open_first_half
+
+    print(gl_closed.shape)
+    print(gl_open.shape)
+
+    auroc, _, fpr = get_measure(gl_closed, gl_open)
+    return auroc * 100, fpr * 100
+
 def get_measure(_pos, _neg, recall_level=0.95):
     pos = np.array(_pos[:]).reshape((-1, 1))
     neg = np.array(_neg[:]).reshape((-1, 1))
@@ -271,28 +310,28 @@ def build_cache_model(log, cfg, clip_model, train_loader_cache):
             # Data augmentation for the cache model
             for augment_idx in range(cfg['augment_epoch']):
                 train_features = []
-                local_train_features = []
+                # local_train_features = []
 
                 log.debug('Augment Epoch: {:} / {:}'.format(augment_idx, cfg['augment_epoch']))
                 for i, (images, target) in enumerate(tqdm(train_loader_cache)):
                     images = images.cuda()
-                    image_features, local_image_features = clip_model.encode_image(images)
+                    image_features, _ = clip_model.encode_image(images)
                     train_features.append(image_features)
-                    local_train_features.append(local_image_features)
+                    # local_train_features.append(local_image_features)
                     if augment_idx == 0:
                         target = target.cuda()
                         cache_values.append(target)
                 cache_keys.append(torch.cat(train_features, dim=0).unsqueeze(0))
-                local_cache_keys.append(torch.cat(local_train_features, dim=0).unsqueeze(0))
+                # local_cache_keys.append(torch.cat(local_train_features, dim=0).unsqueeze(0))
                 
             
         cache_keys = torch.cat(cache_keys, dim=0).mean(dim=0)
         cache_keys /= cache_keys.norm(dim=-1, keepdim=True)
         cache_keys = cache_keys.permute(1, 0)
 
-        local_cache_keys = torch.cat(local_cache_keys, dim=0).mean(dim=0)
-        local_cache_keys /= local_cache_keys.norm(dim=-1, keepdim=True)
-        local_cache_keys = local_cache_keys.permute(3, 0, 1, 2)
+        # local_cache_keys = torch.cat(local_cache_keys, dim=0).mean(dim=0)
+        # local_cache_keys /= local_cache_keys.norm(dim=-1, keepdim=True)
+        # local_cache_keys = local_cache_keys.permute(3, 0, 1, 2)
 
         shots_num = cfg["shots"]
         _, support_num = cache_keys.shape
@@ -312,14 +351,14 @@ def build_cache_model(log, cfg, clip_model, train_loader_cache):
 
         torch.save(cache_keys, cfg['cache_dir'] + '/keys_' + str(cfg['shots']) + "shots.pt")
         torch.save(cache_values, cfg['cache_dir'] + '/values_' + str(cfg['shots']) + "shots.pt")
-        torch.save(local_cache_keys, cfg['cache_dir'] + '/local_keys_' + str(cfg['shots']) + "shots.pt")
+        # torch.save(local_cache_keys, cfg['cache_dir'] + '/local_keys_' + str(cfg['shots']) + "shots.pt")
 
     else:
         cache_keys = torch.load(cfg['cache_dir'] + '/keys_' + str(cfg['shots']) + "shots.pt")
         cache_values = torch.load(cfg['cache_dir'] + '/values_' + str(cfg['shots']) + "shots.pt")
-        local_cache_keys = torch.load(cfg['cache_dir'] + '/local_keys_' + str(cfg['shots']) + "shots.pt")
+        # local_cache_keys = torch.load(cfg['cache_dir'] + '/local_keys_' + str(cfg['shots']) + "shots.pt")
 
-    return cache_keys, local_cache_keys, cache_values
+    return cache_keys, cache_values
 
 
 def pre_load_features(cfg, split, clip_model, loader):

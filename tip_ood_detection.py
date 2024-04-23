@@ -57,6 +57,9 @@ def cal_cache_logits(cfg, features, cache_keys, cache_values):
     cache_logits = ((-1) * (beta - beta * affinity)).exp() @ cache_values
     return cache_logits * alpha
 
+def cal_local_logits():
+    return 0
+
 def cal_cache_logtis_ab(alpha, beta, features, cache_keys, cache_values):
     affinity = features @ cache_keys
     cache_logits = ((-1) * (beta - beta * affinity)).exp() @ cache_values
@@ -85,7 +88,7 @@ def cal_loss_auroc(logits):
 
 
 
-def APE(log, cfg, cache_keys, local_cache_keys, cache_values,  test_features, test_local_features, test_labels, clip_weights, neg_clip_weights,
+def APE(log, cfg, cache_keys, cache_values,  test_features, test_local_features, test_labels, clip_weights, neg_clip_weights,
         open_features, open_local_features, open_labels):
 
     cfg['w'] = cfg['w_training_free']
@@ -108,26 +111,78 @@ def APE(log, cfg, cache_keys, local_cache_keys, cache_values,  test_features, te
     tip_logits = clip_logits + cal_cache_logits(cfg, new_test_features, cache_keys, cache_values)
     open_tip_logits = open_logits + cal_cache_logits(cfg, new_open_features, cache_keys, cache_values)
 
-    auroc = cls_auroc_ours(tip_logits, open_tip_logits)
-    log.debug("**** Our's test mcm auroc: {:.2f}. ****\n".format(auroc))
+    auroc, fpr = cls_auroc_ours(tip_logits, open_tip_logits)
+    log.debug("**** Our's test mcm auroc: {:.2f}, fpr: {:.2f}. ****\n".format(auroc, fpr))
 
-    # calculate gl-mcm score
-    top_local_cache_keys = local_cache_keys[top_indices, :]
-    ood_local_cache_keys = local_cache_keys[ood_indices, :]
-    local_cache_keys = torch.cat((top_local_cache_keys, ood_local_cache_keys), dim=1)
+    clip_local_logits = test_local_features @ zero_clip_weights
+    open_local_logits = open_local_features @ zero_clip_weights
+    gl_auroc, gl_fpr = cls_auroc_gl(tip_logits, open_tip_logits, clip_local_logits, open_local_logits)
+    log.debug("**** Our's test gl-mcm auroc: {:.2f}, fpr: {:.2f}. ****\n".format(gl_auroc, gl_fpr))
 
-    new_test_local_features = test_local_features[:, top_indices]
-    new_open_local_features = open_local_features[:, top_indices]
-    local_clip_logits = 100. * test_local_features @ zero_clip_weights
-    local_open_logits = 100. * open_local_features @ zero_clip_weights
+def APE_gl(log, clip_model, cfg, cache_keys, cache_values, test_loader, ood_loader, clip_weights, neg_clip_weights):
+    cfg['w'] = cfg['w_training_free']
+    top_indices, ood_indices = cal_criterion(cfg, clip_weights, cache_keys, only_use_txt=True)
 
-    local_tip_logits = local_clip_logits + cal_cache_logits(cfg, new_test_local_features, local_cache_keys, cache_values)
-    local_open_tip_logits = local_open_logits + cal_cache_logits(cfg, new_open_local_features, local_cache_keys, cache_values)
+    top_cache_keys = cache_keys[top_indices, :]
+    ood_cache_keys = cache_keys[ood_indices, :]
+    cache_keys = torch.cat((top_cache_keys, ood_cache_keys), dim=1)
 
-    tip_logits = tip_logits + local_tip_logits
-    open_tip_logits = open_tip_logits + local_open_tip_logits
-    auroc = cls_auroc_ours(tip_logits, open_tip_logits)
-    log.debug("**** Our's test gl-mcm auroc: {:.2f}. ****\n".format(auroc))
+    zero_clip_weights = torch.cat((clip_weights, neg_clip_weights), dim=1)
+    g_tip_logits = []
+    l_tip_logits = []
+    g_open_logits = []
+    l_open_logits = []
+
+    with torch.no_grad():
+        for i, (images, target) in enumerate(tqdm(test_loader)):
+            images, target = images.cuda(), target.cuda()
+            image_features, local_image_features = clip_model.encode_image(images)
+            image_features /= image_features.norm(dim=-1, keepdim=True)
+            local_image_features /= local_image_features.norm(dim=-1, keepdim=True)
+            
+            new_image_feature = image_features[:,top_indices]
+            
+            tip_logtis = image_features @ zero_clip_weights + cal_cache_logits(cfg, new_image_feature, cache_keys, cache_values)
+            g_tip_logits.append(tip_logtis)
+
+            local_logtis = local_image_features @ zero_clip_weights
+            l_tip_logits.append(local_logtis)
+
+            images = images.cpu()
+            target = target.cpu()
+            image_features = image_features.cpu()
+            local_image_features = local_image_features.cpu()
+            new_image_feature = new_image_feature.cpu()
+
+        for i, (images, target) in enumerate(tqdm(ood_loader)):
+            images, target = images.cuda(), target.cuda()
+            image_features, local_image_features = clip_model.encode_image(images)
+            image_features /= image_features.norm(dim=-1, keepdim=True)
+            local_image_features /= local_image_features.norm(dim=-1, keepdim=True)
+            
+            new_image_feature = image_features[:,top_indices]
+            
+            tip_logtis = image_features @ zero_clip_weights + cal_cache_logits(cfg, new_image_feature, cache_keys, cache_values)
+            g_open_logits.append(tip_logtis)
+
+            local_logtis = local_image_features @ zero_clip_weights
+            l_open_logits.append(local_logtis)
+
+            images = images.cpu()
+            target = target.cpu()
+            image_features = image_features.cpu()
+            local_image_features = local_image_features.cpu()
+            new_image_feature = new_image_feature.cpu()
+
+
+
+    
+    gl_auroc, gl_fpr = cls_auroc_gl(torch.tensor(g_tip_logits), torch.tensor(l_tip_logits), torch.tensor(g_open_logits), torch.tensor(l_tip_logits))
+    log.debug("**** Our's test gl-mcm auroc: {:.2f}, fpr: {:.2f}. ****\n".format(gl_auroc, gl_fpr))
+    
+    auroc, fpr = cls_auroc_ours(torch.tensor(g_tip_logits), torch.tensor(g_open_logits))
+    log.debug("**** Our's test mcm auroc: {:.2f}, fpr: {:.2f}. ****\n".format(auroc, fpr))
+
 
 
 def APE_ood(log, cfg, cache_keys, cache_values, test_features, test_labels, clip_weights, neg_clip_weights, clip_model,
@@ -279,7 +334,7 @@ def main():
 
     # Construct the cache model by few-shot training set
     log.debug("\nConstructing cache model by few-shot visual features and labels.")
-    cache_keys, local_cache_keys, cache_values = build_cache_model(log, id_cfg, clip_model, train_loader_cache)
+    cache_keys, cache_values = build_cache_model(log, id_cfg, clip_model, train_loader_cache)
 
     # Pre-load test features
     log.debug("\nLoading visual features and labels from test set.")
@@ -294,10 +349,12 @@ def main():
     ood_dataset = build_ood_dataset(ood_cfg['dataset'], ood_cfg['root_path'], log)
     ood_loader = build_data_loader(data_source=ood_dataset.all, batch_size=64, is_train=False, tfm=preprocess,
                                    shuffle=False)
-    ood_features, ood_local_features, ood_labels = pre_load_features(ood_cfg, "ood", clip_model, ood_loader)
+    # ood_features, ood_local_features, ood_labels = pre_load_features(ood_cfg, "ood", clip_model, ood_loader)
 
-    APE(log, id_cfg, cache_keys, local_cache_keys, cache_values, test_features, test_local_features, test_labels, clip_weights, neg_clip_weights,
-        ood_features, ood_local_features, ood_labels)
+    # APE(log, id_cfg, cache_keys, cache_values, test_features, test_local_features, test_labels, clip_weights, neg_clip_weights,
+    #     ood_features, ood_local_features, ood_labels)
+
+    APE_gl(log, clip_model, id_cfg, cache_keys, cache_values, test_loader, ood_loader, clip_weights, neg_clip_weights)
 
 
 if __name__ == '__main__':
